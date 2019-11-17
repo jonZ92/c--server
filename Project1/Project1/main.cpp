@@ -26,6 +26,7 @@ enum CMD {
 	CMD_LOGIN,
 	CMD_LOGIN_RESULT,
 	CMD_LOGINOUT_RESULT,
+	CMD_NEW_USER_JOIN,
 	CMD_LOGINOUT,
 	CMD_ERROR
 };
@@ -77,15 +78,25 @@ struct Login :public dataHead {
 	char userName[32];
 	char password[32];
 };
-
+struct NEWUserLogin :public dataHead
+{
+	NEWUserLogin() {
+		dataLength = sizeof(NEWUserLogin);
+		cmd = CMD_NEW_USER_JOIN;
+		socket_id = 0;
+	}
+	int socket_id;
+};
 
 //定义结构化数据
 struct DataPackage
 {
-
 	int age;
 	char name[32];
 };
+
+
+
 
 
 int processs(SOCKET _clientSock) {
@@ -219,6 +230,11 @@ int main()
 			{
 				printf("接收到无效的客户端 socket.....\n");
 			}
+
+			for (size_t n = 0; n < g_client.size(); n++) {
+				NEWUserLogin userLogin;
+				send(g_client[n],(const char*)&userLogin,sizeof(NEWUserLogin),0);
+			}
 			g_client.push_back(_clientSock);		
 			printf("新客户端加入。socket = %d,ip地址：=%s \n", (int)_clientSock, inet_ntoa(clientAddr.sin_addr));
 		}
@@ -231,6 +247,7 @@ int main()
 				}
 			}		
 		}
+		printf("空闲时间处理其他业务\n");
 	}
 	// 在结束时，关闭客户端socket
 	for (size_t n = 0; n < g_client.size(); n++) {
