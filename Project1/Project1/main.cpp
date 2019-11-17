@@ -5,8 +5,23 @@
 #include<Windows.h>
 #include<WinSock2.h>
 #include<iostream>
+#include<vector>
+
 //链接windows 动态库
-//#pragma comment(lib,"ws2_32.lib")
+#pragma comment(lib,"ws2_32.lib")
+
+using namespace std;
+
+
+vector<SOCKET> g_client;
+
+
+
+
+//设置端口值
+const int post_id = 7000;
+//设置ip值
+const char  host_id[] = "localhost";
 enum CMD {
 	CMD_LOGIN,
 	CMD_LOGIN_RESULT,
@@ -72,6 +87,58 @@ struct DataPackage
 	char name[32];
 };
 
+
+int processs(SOCKET _clientSock) {
+	// 5 接收客户端数据请求
+	//字节缓冲区
+	char szRecv[4096] = {};
+	int _cLen = recv(_clientSock, szRecv, sizeof(dataHead), 0);
+	dataHead *header = (dataHead*)szRecv;
+	if (_cLen <= 0)
+	{
+		printf("客户端已退出，连接接收。\n");
+		return -1;
+	}
+
+	switch (header->cmd)
+	{
+	case CMD_LOGIN:
+	{
+		Login *login = (Login*)szRecv;
+		recv(_clientSock, szRecv + sizeof(dataHead), header->dataLength - sizeof(dataHead), 0);
+		printf("收到命令 数据长度 :%d ,userName=%s\n", login->dataLength, login->userName);
+
+		//账号密码验证
+		LoginResult ret;
+		//send(_clientSock, (char*)&header, sizeof(header), 0);
+		send(_clientSock, (char*)&ret, sizeof(ret), 0);
+
+	}
+	break;
+	case CMD_LOGINOUT: {
+		Loginout *lout = (Loginout*)szRecv;
+		recv(_clientSock, szRecv + sizeof(dataHead), header->dataLength - sizeof(dataHead), 0);
+		printf("收到命令 数据长度 :%d ,userName=%s\n", lout->dataLength, lout->userName);
+
+		//账号密码验证
+		LoginResult ret;
+		send(_clientSock, (char*)&ret, sizeof(ret), 0);
+	}
+					   break;
+	default: {
+		dataHead hd_Len = { 0,CMD_ERROR };
+		send(_clientSock, (char*)&hd_Len, sizeof(dataHead), 0);
+
+	}
+			 break;
+
+	}
+
+
+}
+
+
+
 int main()
 {
 	//启动windows socket
@@ -86,7 +153,7 @@ int main()
 	//网络协议
 	_sin.sin_family = AF_INET;
 	//网络端口
-	_sin.sin_port = htons(7000);// 7000;
+	_sin.sin_port = htons(post_id);// 7000;
 	//绑定ip地址  ip地址 INADDR_ANY  不限定
 	_sin.sin_addr.S_un.S_addr = INADDR_ANY;
 
@@ -110,71 +177,64 @@ int main()
 	}
 
 	// 4、 accept 等待接受客户端连接
-	sockaddr_in clientAddr = {};
-	int nAddrLen = sizeof(sockaddr_in);
-	SOCKET _clientSock = INVALID_SOCKET;
-	_clientSock = accept(sock, (sockaddr*)&clientAddr, &nAddrLen);
-	if (INVALID_SOCKET == _clientSock)
-	{
-		printf("接收到无效的客户端 socket.....\n");
-	}
-
-	printf("新客户端加入。socket = %d,ip地址：=%s \n", (int)_clientSock, inet_ntoa(clientAddr.sin_addr));
-
+	
 	//测试数据
 
 	char _cMsgBuf[128] = {};
 	while (true) {
 
+		//
+		fd_set fd_read;
+		fd_set fd_write;
+		fd_set fd_exp;
+		// 清空 fd 集合 宏
+		FD_ZERO(&fd_read);
+		FD_ZERO(&fd_write);
+		FD_ZERO(&fd_exp);
+		//宏  set套接字  
+		FD_SET(sock, &fd_read);
+		FD_SET(sock, &fd_write);
+		FD_SET(sock, &fd_exp);
+		//timeval time_s = {0,0};
+		for (size_t n = 0; n < g_client.size();n++) {			
+			FD_SET(g_client[n], &fd_read);		
+		}
 
-		// 5 接收客户端数据请求
-		//字节缓冲区
-		char szRecv[4096] = {};
-		int _cLen = recv(_clientSock, szRecv, sizeof(dataHead), 0);
-		dataHead *header = (dataHead*)szRecv;
-		if (_cLen <= 0)
-		{
-			printf("客户端已退出，连接接收。\n");
+		// select 函数最后参数   实现 select 函数是否为阻塞  NULL 阻塞模式 
+		timeval time_s = {0,0};
+		int ret=select(sock + 1, &fd_read, &fd_write, &fd_exp, &time_s);
+		if (ret<0) {
+			printf("select 任务结束。\n");
 			break;
 		}
-		//6 、 处理请求
-		printf("收到命令 ：%d,数据长度 %d \n", header->cmd, header->dataLength);
-
-		switch (header->cmd)
-		{
-		case CMD_LOGIN:
-		{
-			Login *login = (Login*)szRecv;
-			recv(_clientSock, szRecv + sizeof(dataHead), header->dataLength - sizeof(dataHead), 0);
-			printf("收到命令 数据长度 :%d ,userName=%s\n", login->dataLength, login->userName);
-
-			//账号密码验证
-			LoginResult ret;
-			//send(_clientSock, (char*)&header, sizeof(header), 0);
-			send(_clientSock, (char*)&ret, sizeof(ret), 0);
-
+		//判断集合中是否有本身
+		if (FD_ISSET(sock, &fd_read)) {			
+			FD_CLR(sock, &fd_read);
+			//等待客户端连接
+			sockaddr_in clientAddr = {};
+			int nAddrLen = sizeof(sockaddr_in);
+			SOCKET _clientSock = INVALID_SOCKET;
+			_clientSock = accept(sock, (sockaddr*)&clientAddr, &nAddrLen);
+			if (INVALID_SOCKET == _clientSock)
+			{
+				printf("接收到无效的客户端 socket.....\n");
+			}
+			g_client.push_back(_clientSock);		
+			printf("新客户端加入。socket = %d,ip地址：=%s \n", (int)_clientSock, inet_ntoa(clientAddr.sin_addr));
 		}
-		break;
-		case CMD_LOGINOUT: {
-			Loginout *lout = (Loginout*)szRecv;
-			recv(_clientSock, szRecv + sizeof(dataHead), header->dataLength - sizeof(dataHead), 0);
-			printf("收到命令 数据长度 :%d ,userName=%s\n", lout->dataLength, lout->userName);
-
-			//账号密码验证
-			LoginResult ret;
-			send(_clientSock, (char*)&ret, sizeof(ret), 0);
+		//调用方法
+		for (size_t n = 0; n < fd_read.fd_count ;  n++) {
+			if (-1== processs(fd_read.fd_array[n])) {
+				auto iter = find(g_client.begin(),g_client.end(), fd_read.fd_array[n]);
+				if (iter!= g_client.end()) {
+					g_client.erase(iter);
+				}
+			}		
 		}
-						   break;
-		default: {
-			dataHead hd_Len = { 0,CMD_ERROR };
-			send(_clientSock, (char*)&hd_Len, sizeof(dataHead), 0);
-
-		}
-				 break;
-
-		}
-
-		// 7、send 向客户端发送一条数据
+	}
+	// 在结束时，关闭客户端socket
+	for (size_t n = 0; n < g_client.size(); n++) {
+		closesocket(g_client[n]);
 
 	}
 	// 8、关闭socket
