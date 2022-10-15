@@ -1,2 +1,2 @@
-# testServer
+# c++-server
 my project
